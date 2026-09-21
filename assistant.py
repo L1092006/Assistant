@@ -50,7 +50,7 @@ class Assistant:
             input_source_names: list[str] = ["chat_gradio"], 
             output_source_names: list[str] = ["chat_gradio"], 
             model="hf.co/unsloth/gemma-4-26B-A4B-it-qat-GGUF:UD-Q4_K_XL", 
-            system_prompt: str = "Helpfull assistant", 
+            system_prompt: str = "Helpful assistant. You will be called continuously even if there are no new messages from the user. Call the wait tool if you have completed the user request and want to wait for a few seconds for them to input.", 
             url: str = "http://localhost:11434/v1", 
             api_key: str = "api_key", 
             reasoning: Reasoning = Reasoning(effort="none")) -> None:
@@ -88,7 +88,6 @@ class Assistant:
 
         self.context = Context(input_sources=input_sources, output_sources=output_sources, system_prompt=system_prompt)
                 
-
 
         # Init model objects and agents
         provider_client = AsyncOpenAI(base_url=url,api_key=api_key)
@@ -143,7 +142,7 @@ class Assistant:
             while secs_passed < n and not self.context.input_sources.has_new():
                 await asyncio.sleep(1)
                 secs_passed += 1
-            return f"{n} seconds have passed"
+            return f"{secs_passed} seconds have passed"
          
         return [wait]
 
@@ -154,7 +153,7 @@ class Assistant:
     
     # Log to log.txt
     def log(self, text):
-        with open("log.txt", "a") as f:
+        with open("log.txt", "w", encoding="utf-8") as f:
             f.write(text+'\n')
     
 
@@ -171,6 +170,7 @@ class Assistant:
             self.on = True
             while self.on:
                 messages = self.context.fetch()
+                self.log(str(messages))
                 try:
                     result = Runner.run_streamed(self.agent, messages, max_turns=1)
                     # Stream the output

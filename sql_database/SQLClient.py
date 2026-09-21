@@ -1,6 +1,40 @@
 import pymysql
+from abc import ABC, abstractmethod
 
-class SQLClient:
+class SQLClient(ABC):
+    """
+    A client to connect to a SQL database.
+
+    Serve as an abtraction from the specific SQL database so that we can switch between different versions.
+    """
+    @abstractmethod
+    def __init__(self):
+        """
+        Save all the connection info to attributes
+        """
+        pass
+
+    @abstractmethod
+    def save_messages(self, messages: list[dict], agent_name: str):
+        """
+        Save all the messages 
+
+        For each message, specify the type and the agent who made it in the corresponding columns
+
+        Parameters:
+            messages
+        """
+        pass
+
+    @abstractmethod
+    def get_messages(self, agent_name: str, seconds: int = 60*60*24):
+        """
+        Get all messages associated with the specify agent in the last specified seconds.
+        """
+        pass
+
+
+class MySQLClient(SQLClient):
     """
     A client to connect to a SQL database.
 
