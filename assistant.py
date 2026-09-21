@@ -120,29 +120,29 @@ class Assistant:
     # Wrapper function which provides self parameter to tools and return them
     # FIXME: implement thought tool which add the tool call to self.messages
     def list_tools(self):
+        # FIXME: implement think tool
         @function_tool
         def think(your_thought: str):
             """A tool to think. If you want to think, call this function and give your thought as the argument. Your thoughts are not displayed to others.  Do not output your thought directly"""
 
-            self.messages.append({
-                'role': 'tool',
-                'content': {
-                    'time': datetime.now().astimezone(),
-                    'tool_name': 'think',
-                    'result': f'You thought: {your_thought}'
-                }
-            })
-            return 'Done'
+            pass
 
         @function_tool
-        def wait(n: int = 10):
+        async def wait(n: int = 10):
             """
             Wait n seconds for the user to say something. Used once you finished the latest request from the user.
 
             Input:
                 n: the number of seconds to wait
             """
-            asyncio.sleep(n)
+
+            # The number of seconds have passed
+            secs_passed = 0
+
+            # Wait until time out or there are new data from input sources
+            while secs_passed < n and not self.context.input_sources.has_new():
+                await asyncio.sleep(1)
+                secs_passed += 1
             return f"{n} seconds have passed"
          
         return [wait]
@@ -189,7 +189,9 @@ class Assistant:
                     self.context.send_phrase("||END_OF_RESPONSE||")
                     # Send the complete messages list to context and output sources that use complete messages
                     print(str(result.to_input_list()))
-                    self.context.send_messages(result.to_input_list())
+
+                    # Send only the newly produced messages to context
+                    self.context.send_messages(result.to_input_list()[len(messages):])
 
                 except Exception as e:
                     print(f'Error: {e}')

@@ -51,13 +51,15 @@ class Context:
     """Special keywords in prompts that need care"""
 
 
-    def __init__(self, input_sources: dict[str, InputSource] = [], output_sources: dict[str, OutputSource] = [], system_prompt: str = "") -> None:
+    def __init__(self, input_sources: dict[str, InputSource] = {}, output_sources: dict[str, OutputSource] = {}, system_prompt: str = "") -> None:
         
         # Initialize input sources
         self.input_sources = InputSourceHub(sources=input_sources)
+        self.input_sources.connect_all()
 
         # Initialize output sources
-        self.output_sources = OutputSourceHub(sources=output_sources)  
+        self.output_sources = OutputSourceHub(sources=output_sources) 
+        self.output_sources.connect_all() 
 
         
 
@@ -92,7 +94,6 @@ class Context:
                 agent_messages.append(message)
         self.messages.extend(messages)
         self.output_sources.send_messages(agent_messages)
-
     def send_phrase(self, phrase: str) -> None:
         """Send a phrase to all output sources that are in use for streaming purpose"""
         self.output_sources.send_phrase(phrase)
