@@ -3,6 +3,7 @@ import json
 from dotenv import load_dotenv
 from memory import MemoryClient, Memory
 from sources import InputSource, InputSourceHub, OutputSource, OutputSourceHub, GradioUI
+from prompts import system_prompts
 load_dotenv(override=True)
 
 
@@ -51,7 +52,18 @@ class Context:
     """Special keywords in prompts that need care"""
 
 
-    def __init__(self, input_sources: dict[str, InputSource] = {}, output_sources: dict[str, OutputSource] = {}, system_prompt: str = "") -> None:
+    def __init__(self, input_sources: dict[str, InputSource] = {}, output_sources: dict[str, OutputSource] = {}, agent_type: str = "assistant") -> None:
+        """
+        Init the context
+
+        Get the system prompt from prompts module based on the agent type.
+        Init messages (the n latest messages), memory,...
+
+        Parameters:
+            input_sources: a dict mapping the source names in str to the InputSource objects
+            output_sources: a dict mapping the source names in str to the OutputSource objects
+            agent_type: the type of the agent using this Context object
+        """
         
         # Initialize input sources
         self.input_sources = InputSourceHub(sources=input_sources)
@@ -62,27 +74,59 @@ class Context:
         self.output_sources.connect_all() 
 
         
-
+        # FIXME: Use SQLClient to fetch the latest messages from a sql database
         self.messages = [{
             'role': 'user',
             'content': f'System starts. Now is {datetime.now().astimezone().isoformat()}'
             }]
+        
         self.simple_conversation_history = ''
 
         self.reasoning_prompt = ''
-        self.system_prompt = system_prompt
+
+        # Get the system prompt from prompts module
+        self.system_prompt = system_prompts[agent_type]
 
         self.keywords = {
             # Keyword to indicate there's no new input
             'no_input': '[no input]'
         }
 
-    def fetch(self) -> list[dict]:
-        """Fetch data from all input sources whose attention is not none. Combine with existing messages and return all"""
+    def fetch_messages(self, n: int = None) -> list[dict]:
+        """
+        Return the latest n messages
+
+        Fetch data from all input sources whose attention is not none. 
+        Combine with existing messages and return the latest n messages as a list
+
+        Parameters:
+            n: the number of the latest messages to return. If it's None, return all
+        """
+        # Fetch data from input sources and add it to the current messages list
         new_messages = self.input_sources.fetch()
         self.messages.extend(new_messages)
         messages = self.messages.copy()
+
+        # Get only the latest n messages if n is not None
+        if n is not None:
+            messages = messages[-n:]
+
         return messages
+
+    def fetch_context(self, num_messages: int = None) -> dict:
+        """
+        Combine all the context sections into asingle user message including any files and return it
+        
+        Parameters:
+            num_messages: the number of the latest messages to include in the context. If it's None, return all
+        """
+        messages = self.fetch_messages(num_messages)
+
+        # The string message to return
+        message = ""
+
+        # Add the conversation history
+        pass
 
     def send_messages(self, messages: list[dict]) -> None:
         """Combine messages from the agent and send them to all output sources that are in use"""

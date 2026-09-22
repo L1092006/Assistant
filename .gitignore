@@ -15,3 +15,5 @@ REPORT.md
 log.txt
 experiment.py
 experiment2.ipynb
+agent_logs.txt
+reasoning_log.txt

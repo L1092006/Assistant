@@ -49,11 +49,11 @@ class Assistant:
             self, 
             input_source_names: list[str] = ["chat_gradio"], 
             output_source_names: list[str] = ["chat_gradio"], 
-            model="hf.co/unsloth/gemma-4-26B-A4B-it-qat-GGUF:UD-Q4_K_XL", 
-            system_prompt: str = "Helpful assistant. You will be called continuously even if there are no new messages from the user. Call the wait tool if you have completed the user request and want to wait for a few seconds for them to input.", 
+            model="qwen3.8-gsq-vision:latest", 
+            agent_type: str = "assistant", 
             url: str = "http://localhost:11434/v1", 
             api_key: str = "api_key", 
-            reasoning: Reasoning = Reasoning(effort="none")) -> None:
+            reasoning: str = "none") -> None:
         """
         Initialize the agent
 
@@ -61,7 +61,7 @@ class Assistant:
             input_source_name: The str names of the input sources that the agent will use
             output_source_name: The str names of the output sources that the agent will send to
             model: the AI model to use
-            system_prompt: the ssytem prompt for the agent
+            agent_type: the type of the agent (assistant, subagent,...)
             url: the url to call the model, default to ollama
             api_key: the api_key of the provider
             reasoning: the reasoning effort
@@ -86,7 +86,7 @@ class Assistant:
             if name == "chat_gradio":
                 output_sources[name] = gradio_ui.output_source
 
-        self.context = Context(input_sources=input_sources, output_sources=output_sources, system_prompt=system_prompt)
+        self.context = Context(input_sources=input_sources, output_sources=output_sources, agent_type=agent_type)
                 
 
         # Init model objects and agents
@@ -105,6 +105,8 @@ class Assistant:
             cache_tools_list=True,
             client_session_timeout_seconds=120,
         )]
+
+        reasoning = Reasoning(effort=reasoning)
         self.agent = Agent(
             name="Reasoning Agent", 
             instructions=self.context.system_prompt, 
@@ -121,19 +123,34 @@ class Assistant:
     def list_tools(self):
         # FIXME: implement think tool
         @function_tool
-        def think(your_thought: str):
-            """A tool to think. If you want to think, call this function and give your thought as the argument. Your thoughts are not displayed to others.  Do not output your thought directly"""
-
-            pass
+        def think(reasoning: str):
+            """
+            A tool to reasoning. 
+            
+            If you want to reason, call this function and give your reasoning as the argument
+            This tool is for recording your reasoning only, it doesn't return anything.
+            Your reasonings here are not visible to the user
+            Do not output your reasoning directly
+            DO NOT INGORE THIS TOOL. YOU MUST USE THIS WHEN NECESSARY (COMPLEX TASKS, QUERIES). 
+            THIS IS PLACE FOR YOU TO DO REASONING.
+            """
+            self.log(reasoning, mode="a", file_path="reasoning_log.txt")
+            return ""
 
         @function_tool
         async def wait(n: int = 10):
             """
-            Wait n seconds for the user to say something. Used once you finished the latest request from the user.
+            Wait up to n seconds for the user to say something. 
+            Used once you finished the latest request from the user and want to wait for them.
+            You should tell the user that you have finished first and then wait for them.
+            Recommended waiting strategy:
+                - Increase the wait time if you receive no messages after several wait calls.
+                - You must use this tool if the user keeps not sending any messages. DO NOT LET YOURSELF BE INVOKED CONTINUOUSLY WITH NO GOALS.
 
             Input:
                 n: the number of seconds to wait
             """
+            self.log(f"wait called with {n} seconds", mode="a")
 
             # The number of seconds have passed
             secs_passed = 0
@@ -144,17 +161,17 @@ class Assistant:
                 secs_passed += 1
             return f"{secs_passed} seconds have passed"
          
-        return [wait]
+        return [wait, think]
 
     # HELPERS
     # Count the number of words/tokens. Currently words
-    def count(self, str):
+    def count(self, str: str):
         return len(str.split(' '))
     
     # Log to log.txt
-    def log(self, text):
-        with open("log.txt", "w", encoding="utf-8") as f:
-            f.write(text+'\n')
+    def log(self, text, file_path: str = "log.txt", mode: str = "w"):
+        with open(file_path, mode, encoding="utf-8") as f:
+            f.write(f"{text}\n")
     
 
     # Start the agent
@@ -169,10 +186,10 @@ class Assistant:
             self.agent.mcp_servers = manager.active_servers
             self.on = True
             while self.on:
-                messages = self.context.fetch()
-                self.log(str(messages))
+                context = self.context.fetch_messages()
+                self.log(context, file_path="agent_logs.txt")
                 try:
-                    result = Runner.run_streamed(self.agent, messages, max_turns=1)
+                    result = Runner.run_streamed(self.agent, context, max_turns=1)
                     # Stream the output
                     async for event in result.stream_events():
                         if event.type == "raw_response_event" and isinstance(event.data, ResponseTextDeltaEvent):
@@ -192,6 +209,8 @@ class Assistant:
 
                     # Send only the newly produced messages to context
                     self.context.send_messages(result.to_input_list()[len(messages):])
+
+                    # Wait 
 
                 except Exception as e:
                     print(f'Error: {e}')
