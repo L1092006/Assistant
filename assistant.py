@@ -208,7 +208,7 @@ class Assistant:
                     print(str(result.to_input_list()))
 
                     # Send only the newly produced messages to context
-                    self.context.send_messages(result.to_input_list()[len(messages):])
+                    self.context.send_messages(result.to_input_list()[len(context):])
 
                     # Wait 
 
