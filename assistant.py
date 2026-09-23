@@ -186,7 +186,7 @@ class Assistant:
             self.agent.mcp_servers = manager.active_servers
             self.on = True
             while self.on:
-                context = self.context.fetch_messages()
+                context = self.context.fetch_context()
                 self.log(context, file_path="agent_logs.txt")
                 try:
                     result = Runner.run_streamed(self.agent, context, max_turns=1)
@@ -207,10 +207,8 @@ class Assistant:
                     # Send the complete messages list to context and output sources that use complete messages
                     print(str(result.to_input_list()))
 
-                    # Send only the newly produced messages to context
-                    self.context.send_messages(result.to_input_list()[len(context):])
-
-                    # Wait 
+                    # Send only the newly produced messages to context, ignore the context user message
+                    self.context.send_messages(result.to_input_list()[1:])
 
                 except Exception as e:
                     print(f'Error: {e}')
