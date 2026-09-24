@@ -145,8 +145,9 @@ class Assistant:
             You should tell the user that you have finished first and then wait for them.
             Recommended waiting strategy:
                 - Increase the wait time if you receive no messages after several wait calls.
+                - Send the message to them after waiting for a while. You should read the situation to behave.
                 - You must use this tool if the user keeps not sending any messages. DO NOT LET YOURSELF BE INVOKED CONTINUOUSLY WITH NO GOALS.
-
+            Notice: If you forgot to call wait after completing a process and having nothing to do, you will receive an input whose end is your assistant message. DO NOT GIVE NEARLY THE SAME REPLY. JUST CALL wait.
             Input:
                 n: the number of seconds to wait
             """

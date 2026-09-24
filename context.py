@@ -202,7 +202,7 @@ class Context:
                             input_items.append(item)
                     message["output"] = input_items
                 # Extract type, call id, output to create a new message
-                new_message = {"type": message["type"], "call_id": message["call_id"], "output": input_items}
+                new_message = {"type": message["type"], "call_id": message["call_id"], "output": message["output"]}
             # If it's a function call, extract the type, call id, name, arguments
             elif "type" in message and message["type"] == "function_call":
                 new_message = {
@@ -219,7 +219,7 @@ class Context:
             new_message_str = json.dumps(new_message)
             num_tokens = count(new_message_str)
 
-            return num_tokens, num_files, file_items, new_message_str
+            return num_tokens, num_files, files, new_message_str
             
                 
                             
@@ -231,7 +231,7 @@ class Context:
             # If there is no message in messages yet, add it anyway
             if len(messages) == 0:
                 messages.append(mod_message)
-                all_file_items.append(file_items)
+                all_file_items.extend(file_items)
                 continue
 
             # If we don't need to execute max tokens limit or current tokens is below it, append the message
@@ -250,9 +250,9 @@ class Context:
         messages = reversed(messages)        
         return messages, all_file_items
 
-    def fetch_context(self) -> dict:
+    def fetch_context(self) -> list:
         """
-        Combine all the context sections into asingle user message including any files and return it
+        Combine all the context sections into a single user message including any files and return it
         """
         messages, file_items = self.fetch_messages()
 
@@ -260,7 +260,7 @@ class Context:
         input_text = ""
 
         # Add the conversation history
-        input_text += "History (including your tool calls and reasoning)\n"
+        input_text += "Below is the history. Note that all assistant messages are the messages you send to the user while the tool call and results are invisible\n"
         input_text += '\n'.join(messages)
 
         # The user message to return
@@ -274,7 +274,7 @@ class Context:
             ] + file_items
         }
 
-        return user_message
+        return [user_message]
             
 
 

@@ -2,7 +2,7 @@ from assistant import Assistant
 import asyncio
 
 async def main():
-    assistant = Assistant(reasoning="low")
+    assistant = Assistant(reasoning="none")
     await assistant.start()
 
 
