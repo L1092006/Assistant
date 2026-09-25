@@ -2,10 +2,10 @@
 
 
 -- All messages from all agents
-CREATE TABLE "messages" (
+CREATE TABLE IF NOT EXISTS "messages" (
     "id" INTEGER,  
     "raw_string" TEXT NOT NULL,
-    "datetime" TEXT DEFAULT CURRENT_TIMESTAMP,
+    "datetime" TEXT NOT NULL,
     -- The type of the message (message, function_call,...)
     "type" TEXT NOT NULL,
     "agent_id" INTEGER NOT NULL,
@@ -15,9 +15,9 @@ CREATE TABLE "messages" (
 
 
 -- All agents, including subagents and main assistants with different system message
-CREATE TABLE "agents" (
+CREATE TABLE IF NOT EXISTS "agents" (
     "id" INTEGER,
-    "name" TEXT NOT NULL,
+    "name" TEXT NOT NULL UNIQUE,
     "system_message" TEXT NOT NULL,
     "type" TEXT NOT NULL CHECK("type" IN ('assistant', 'subagent')),
     PRIMARY KEY("id")
