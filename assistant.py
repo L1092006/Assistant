@@ -86,7 +86,12 @@ class Assistant:
             if name == "chat_gradio":
                 output_sources[name] = gradio_ui.output_source
 
-        self.context = Context(input_sources=input_sources, output_sources=output_sources, agent_type=agent_type)
+        # Get the persona info
+        with open('personas.json', mode='r', encoding='utf-8') as f:
+            personas = json.load(f)
+        persona_name = personas['chosen_persona']
+        persona = personas[persona_name]
+        self.context = Context(input_sources=input_sources, output_sources=output_sources, agent_name=persona_name, agent_type=agent_type)
                 
 
         # Init model objects and agents

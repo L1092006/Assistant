@@ -68,7 +68,7 @@ class Context:
 
 
 
-    def __init__(self, input_sources: dict[str, InputSource] = {}, output_sources: dict[str, OutputSource] = {}, agent_type: str = "assistant", max_tokens: int = 5000, max_files: int = 5) -> None:
+    def __init__(self, input_sources: dict[str, InputSource] = {}, output_sources: dict[str, OutputSource] = {}, agent_name: str = "Alice", agent_type: str = "assistant", max_tokens: int = 5000, max_files: int = 5) -> None:
         """
         Init the context
 
