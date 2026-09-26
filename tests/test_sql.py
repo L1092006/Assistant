@@ -1,33 +1,20 @@
 """
-TDD contract tests for `sql_database.SQLClient.SQLiteClient`.
+Contract tests for `sql_database.SQLClient.SQLiteClient` (updated for the revised plan).
 
-STATUS: `SQLiteClient` is currently a stub — `__init__`, `save_messages` and
-`get_messages` are all `pass`. These are **specification / TDD tests**: the two
-interface tests pass now, but every behavioural test below is expected to FAIL
-until `SQLiteClient` is implemented. They encode the intended contract inferred
-from the docstrings in `sql_database/SQLClient.py` and the schema in
-`sql_database/sqlite_init.sql`.
+New plan reflected here:
+  * `SQLiteClient(file_path)` initialises the database, creating the schema from
+    `sqlite_init.sql` (tables `messages` and `agents`).
+  * Agents are created explicitly with `create_agent(name, type, system_message)`.
+  * `save_messages(messages, agent_name)` and `get_messages(agent_name, seconds)`
+    **raise `ValueError`** when `agent_name` has not been created.
+  * `save_messages` stores each message as `raw_string = json.dumps(message)`, a `type`
+    (`message["type"]`, else `"message"`), an `agent_id`, and a UTC timestamp.
+  * `get_messages` returns the agent's messages within the last `seconds` seconds as a
+    list of the original dicts (parsed from `raw_string`), oldest -> newest; `[]` if none.
 
-Assumed contract (adjust the implementation — or these tests — if the intent differs):
-
-`SQLiteClient(file_path: str)`
-    - Opens/creates a SQLite database at `file_path` and ensures the schema from
-      `sqlite_init.sql` exists: tables `messages` and `agents`.
-
-`save_messages(messages: list[dict], agent_name: str) -> None`
-    - Appends one row to `messages` per message dict:
-        * `raw_string` = `json.dumps(message)`
-        * `type`       = the message's type (`message["type"]` for tool items, or a
-                          non-empty derived type such as "message" for role messages)
-        * `agent_id`   = the id of the agent named `agent_name` (created/looked up as
-                          needed; the same name maps to a single `agents` row)
-        * `datetime`   = insertion time (UTC, via the column's CURRENT_TIMESTAMP default)
-    - Multiple calls accumulate.
-
-`get_messages(agent_name: str, seconds: int = 86400) -> list[dict]`
-    - Returns the messages saved for `agent_name` whose `datetime` is within the last
-      `seconds` seconds, as a list of the original message dicts (parsed from
-      `raw_string`), ordered oldest -> newest. Returns `[]` when there are none.
+These are contract tests: they define the intended behaviour. Where the current
+implementation doesn't yet satisfy the contract they will fail/error — see the summary
+returned with this change for the specific implementation issues found.
 
 Run:  uv run python -m pytest tests/test_sql.py
 """
@@ -35,6 +22,7 @@ import os
 import sys
 import json
 import sqlite3
+from datetime import datetime, timezone, timedelta
 
 import pytest
 
@@ -50,6 +38,8 @@ from sql_database.SQLClient import SQLiteClient, SQLClient
 # Sample data
 # --------------------------------------------------------------------------- #
 AGENT = "assistant_main"
+SYSTEM_MESSAGE = "You are Alice, an AI secretary."
+AGENT_TYPE = "assistant"  # must satisfy the schema CHECK(type IN ('assistant','subagent'))
 
 SAMPLE_MESSAGES = [
     {"role": "user", "content": "System starts."},
@@ -58,30 +48,31 @@ SAMPLE_MESSAGES = [
     {"type": "function_call_output", "call_id": "call_1", "output": "5 seconds have passed"},
 ]
 
-MESSAGES_B = [
-    {"role": "user", "content": "A message for a different agent"},
-]
-
 
 # --------------------------------------------------------------------------- #
 # Fixtures
 # --------------------------------------------------------------------------- #
 @pytest.fixture
 def db_path(tmp_path):
-    """A fresh, per-test SQLite file path (nothing is created until the client does)."""
+    """A fresh, per-test SQLite file path."""
     return tmp_path / "messages.db"
 
 
 @pytest.fixture
 def client(db_path):
-    """A SQLiteClient pointed at the temp DB."""
+    """A SQLiteClient pointed at the temp DB (its __init__ is expected to build the schema)."""
     return SQLiteClient(file_path=str(db_path))
 
 
+@pytest.fixture
+def client_with_agent(client):
+    """A client that already has AGENT registered."""
+    client.create_agent(name=AGENT, type=AGENT_TYPE, system_message=SYSTEM_MESSAGE)
+    return client
+
+
 # --------------------------------------------------------------------------- #
-# Helpers (read the DB directly to verify persistence / set up time windows).
-# They tolerate a not-yet-created schema so the stub fails on a clean behavioural
-# assertion rather than raising sqlite3.OperationalError.
+# DB inspection helpers (tolerate a not-yet-created schema)
 # --------------------------------------------------------------------------- #
 def _query(db_path, sql, params=()):
     try:
@@ -95,19 +86,17 @@ def _query(db_path, sql, params=()):
 
 
 def _table_names(db_path):
-    rows = _query(db_path, "SELECT name FROM sqlite_master WHERE type='table'")
-    return {r[0] for r in rows}
+    return {r[0] for r in _query(db_path, "SELECT name FROM sqlite_master WHERE type='table'")}
 
 
-def _backdate_earliest_message(db_path, modifier="-2 days"):
-    """Move the oldest stored message's timestamp into the past, to test the time window."""
+def _backdate_earliest_message(db_path, dt_iso):
+    """Set the oldest message's timestamp, to exercise the time window."""
     try:
         con = sqlite3.connect(str(db_path))
         try:
             con.execute(
-                "UPDATE messages SET datetime = datetime('now', ?) "
-                "WHERE id = (SELECT MIN(id) FROM messages)",
-                (modifier,),
+                "UPDATE messages SET datetime = ? WHERE id = (SELECT MIN(id) FROM messages)",
+                (dt_iso,),
             )
             con.commit()
         finally:
@@ -117,102 +106,124 @@ def _backdate_earliest_message(db_path, modifier="-2 days"):
 
 
 # --------------------------------------------------------------------------- #
-# Interface tests (pass now)
+# Interface
 # --------------------------------------------------------------------------- #
 def test_sqliteclient_is_sqlclient_subclass():
     assert issubclass(SQLiteClient, SQLClient)
 
 
-def test_methods_are_callable(client):
+def test_client_exposes_expected_methods(client):
+    assert callable(client.create_agent)
     assert callable(client.save_messages)
     assert callable(client.get_messages)
 
 
 # --------------------------------------------------------------------------- #
-# Behavioural contract tests (fail until SQLiteClient is implemented)
+# Schema / agents
 # --------------------------------------------------------------------------- #
 def test_init_creates_schema(client, db_path):
-    """Constructing the client should create the `messages` and `agents` tables."""
+    """Constructing the client initialises the DB with the messages and agents tables."""
     tables = _table_names(db_path)
-    assert "messages" in tables, "SQLiteClient.__init__ should create the 'messages' table"
-    assert "agents" in tables, "SQLiteClient.__init__ should create the 'agents' table"
+    assert "messages" in tables, "__init__ should create the 'messages' table"
+    assert "agents" in tables, "__init__ should create the 'agents' table"
 
 
-def test_save_then_get_roundtrip(client):
-    """Messages saved for an agent are returned by get_messages, unchanged and in order."""
-    client.save_messages(SAMPLE_MESSAGES, AGENT)
-    result = client.get_messages(AGENT)
+def test_create_agent_adds_row(client, db_path):
+    """create_agent inserts a row into agents with the given name/system_message/type."""
+    client.create_agent(name=AGENT, type=AGENT_TYPE, system_message=SYSTEM_MESSAGE)
+
+    rows = _query(db_path, "SELECT name, system_message, type FROM agents WHERE name = ?", (AGENT,))
+    assert rows == [(AGENT, SYSTEM_MESSAGE, AGENT_TYPE)]
+
+
+# --------------------------------------------------------------------------- #
+# Unknown-agent handling
+# --------------------------------------------------------------------------- #
+def test_save_messages_unknown_agent_raises(client):
+    with pytest.raises(ValueError):
+        client.save_messages(SAMPLE_MESSAGES, "nonexistent_agent")
+
+
+def test_get_messages_unknown_agent_raises(client):
+    with pytest.raises(ValueError):
+        client.get_messages("nonexistent_agent")
+
+
+# --------------------------------------------------------------------------- #
+# save / get behaviour
+# --------------------------------------------------------------------------- #
+def test_save_then_get_roundtrip(client_with_agent):
+    client_with_agent.save_messages(SAMPLE_MESSAGES, AGENT)
+    result = client_with_agent.get_messages(AGENT)
 
     assert isinstance(result, list), "get_messages should return a list"
     assert result == SAMPLE_MESSAGES, "get_messages should return the saved messages, oldest first"
 
 
-def test_get_messages_returns_empty_list_when_none(client):
-    """An agent with no stored messages yields an empty list (not None)."""
-    result = client.get_messages("no_such_agent")
-    assert result == [], "get_messages should return [] when the agent has no messages"
+def test_get_messages_empty_for_known_agent_without_messages(client_with_agent):
+    assert client_with_agent.get_messages(AGENT) == []
 
 
 def test_messages_are_isolated_per_agent(client):
-    """get_messages(agent) returns only that agent's messages."""
-    client.save_messages(SAMPLE_MESSAGES, AGENT)
-    client.save_messages(MESSAGES_B, "other_agent")
+    client.create_agent(name="agent_a", type="assistant", system_message="A")
+    client.create_agent(name="agent_b", type="subagent", system_message="B")
 
-    assert client.get_messages(AGENT) == SAMPLE_MESSAGES
-    assert client.get_messages("other_agent") == MESSAGES_B
+    msgs_a = [{"role": "user", "content": "for A"}]
+    msgs_b = [{"role": "user", "content": "for B"}]
+    client.save_messages(msgs_a, "agent_a")
+    client.save_messages(msgs_b, "agent_b")
+
+    assert client.get_messages("agent_a") == msgs_a
+    assert client.get_messages("agent_b") == msgs_b
 
 
-def test_multiple_saves_accumulate_in_order(client):
-    """Successive save_messages calls append; get_messages returns them oldest -> newest."""
+def test_multiple_saves_accumulate_in_order(client_with_agent):
     first = [{"role": "user", "content": "first"}]
     second = [
         {"role": "assistant", "content": "second"},
         {"role": "user", "content": "third"},
     ]
-    client.save_messages(first, AGENT)
-    client.save_messages(second, AGENT)
+    client_with_agent.save_messages(first, AGENT)
+    client_with_agent.save_messages(second, AGENT)
 
-    assert client.get_messages(AGENT) == first + second
+    assert client_with_agent.get_messages(AGENT) == first + second
 
 
-def test_saved_rows_populate_type_and_agent_columns(client, db_path):
-    """
-    Each saved message becomes one `messages` row with a non-empty `type` and a valid
-    `agent_id`, and the agent name maps to exactly one `agents` row.
-    """
-    client.save_messages(SAMPLE_MESSAGES, AGENT)
+def test_saved_rows_populate_columns(client_with_agent, db_path):
+    """Each message becomes a row with the derived `type` and a single shared `agent_id`."""
+    client_with_agent.save_messages(SAMPLE_MESSAGES, AGENT)
 
-    rows = _query(db_path, "SELECT type, agent_id FROM messages ORDER BY id")
-    assert len(rows) == len(SAMPLE_MESSAGES), "one messages row should be stored per message"
+    rows = _query(db_path, "SELECT type, agent_id, datetime FROM messages ORDER BY id")
+    assert len(rows) == len(SAMPLE_MESSAGES), "one messages row per message"
 
-    types = [r[0] for r in rows]
+    stored_types = [r[0] for r in rows]
+    expected_types = [m.get("type", "message") for m in SAMPLE_MESSAGES]
+    assert stored_types == expected_types, "type column should be message['type'] or 'message'"
+
     agent_ids = [r[1] for r in rows]
-    assert all(isinstance(t, str) and t for t in types), "every row needs a non-empty 'type'"
-    assert all(a is not None for a in agent_ids), "every row needs an 'agent_id'"
-    assert len(set(agent_ids)) == 1, "all messages for one agent should link to the same agent_id"
+    assert all(a is not None for a in agent_ids) and len(set(agent_ids)) == 1, \
+        "all rows should link to the one agent's id"
 
-    agent_rows = _query(db_path, "SELECT COUNT(*) FROM agents WHERE name = ?", (AGENT,))
-    assert agent_rows and agent_rows[0][0] == 1, "the agent name should map to exactly one agents row"
+    assert all(r[2] for r in rows), "every row should have a datetime"
 
 
-def test_get_messages_excludes_messages_older_than_window(client, db_path):
+def test_get_messages_excludes_messages_older_than_window(client_with_agent, db_path):
     """
     get_messages(..., seconds=N) returns only messages from the last N seconds.
 
-    NOTE: this is the most implementation-coupled test — it assumes timestamps are stored
-    in the `datetime` column in UTC (matching the schema's CURRENT_TIMESTAMP default) so
-    that SQLite's datetime() comparison drives the window.
+    Assumes timestamps are stored and compared consistently in UTC.
     """
     older = {"role": "user", "content": "old message"}
     newer = {"role": "assistant", "content": "recent message"}
-    client.save_messages([older, newer], "agent_time")
+    client_with_agent.save_messages([older, newer], AGENT)
 
-    # Push the first (oldest) row two days into the past.
-    _backdate_earliest_message(db_path, "-2 days")
+    # Push the oldest row two days into the past (UTC).
+    two_days_ago = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat()
+    _backdate_earliest_message(db_path, two_days_ago)
 
-    within_hour = client.get_messages("agent_time", seconds=60 * 60)
-    assert isinstance(within_hour, list), "get_messages should return a list"
+    within_hour = client_with_agent.get_messages(AGENT, seconds=60 * 60)
+    assert isinstance(within_hour, list)
     assert within_hour == [newer], "a 1-hour window should exclude the 2-day-old message"
 
-    within_week = client.get_messages("agent_time", seconds=60 * 60 * 24 * 7)
+    within_week = client_with_agent.get_messages(AGENT, seconds=60 * 60 * 24 * 7)
     assert within_week == [older, newer], "a 1-week window should include both messages"

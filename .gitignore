@@ -18,3 +18,4 @@ experiment2.ipynb
 agent_logs.txt
 reasoning_log.txt
 .vscode/
+.env
