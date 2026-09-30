@@ -1,7 +1,7 @@
 import pytest
 from copy import deepcopy
 from unittest.mock import patch, MagicMock
-from helpers import *
+from helpers_test import *
 import sources
 from sources import InputSource, InputSourceHub, OutputSource, OutputSourceHub, MessageInputSource, StreamingOutputSource, GradioUI
 

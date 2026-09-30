@@ -6,8 +6,7 @@ from dotenv import load_dotenv
 
 from openai import AsyncOpenAI
 from agents import Agent, Runner, trace, function_tool, OpenAIChatCompletionsModel, ModelSettings
-from openai.types.shared import Reasoning
-from pydantic import BaseModel, Field
+from datetime import datetime, timezone
 
 load_dotenv(override=True)
 
@@ -18,42 +17,49 @@ with open('personas.json', mode='r', encoding='utf-8') as f:
 # Connect to Chroma and handle add, searches,...
 class MemoryClient:
     chroma_client = None
-    chroma_collection = None
     embedding_model = None
 
     # FIXME: change default parameters for production. Get the values from a config file
-    def __init__(self, path='./memory/test', collection_name='test', override_collection=True, embedding_model_name='jinaai/jina-embeddings-v5-text-small'):
+    def __init__(self, path='./memory',  embedding_model_name='jinaai/jina-embeddings-v5-text-small'):
         self.chroma_client = PersistentClient(path=path)
-        
-        # Delete the collection if override_collection = True
-        if override_collection and collection_name in [c.name for c in self.chroma_client.list_collections()]:
-            self.chroma_client.delete_collection(collection_name)
-        
-        self.chroma_collection = self.chroma_client.get_or_create_collection(collection_name)
-
         self.embedding_model = SentenceTransformer(embedding_model_name, trust_remote_code=True)
 
 
-    # BASIC FUNCTIONALITIES (ADD/SEARCHES)
+    # BASIC FUNCTIONALITIES (ADD/SEARCHES/DELETE)
+    def delete_collection(self, collection_name: str) -> None:
+        """Delete the collection"""
+        # Delete the collection if it exists
+        if collection_name in [c.name for c in self.chroma_client.list_collections()]:
+            self.chroma_client.delete_collection(collection_name)
+
     # Add documents to the collection
-    def add(self, chunks: list[dict]):
+    def add(self, chunks: list[dict], collection_name: str):
         """
         IN:
             chunks: a list of dict. Each dict contains:
             {
                 'document': The string document,
-                'metadata': The dict of metadata
+                'metadata': The dict of metadata (optional)
             }
+            collection_name: the name of the collection to add to
         """
         documents = [c['document'] for c in chunks]
-        metadatas = [c['metadata'] for c in chunks]
+        metadatas = [c.get('metadata', {}) for c in chunks]
+
+        # Add the time metadata if one doesn't have it
+        for m in metadatas:
+            if "time" not in m:
+                m["time"] = datetime.now(timezone.utc).isoformat()
         embeddings = self.embedding_model.encode(
             documents,
             task='retrieval',
             prompt_name='document'
         )
 
-        self.chroma_collection.add(
+        # Get the collection
+        chroma_collection = self.chroma_client.get_or_create_collection(collection_name)
+
+        chroma_collection.add(
             ids=[str(uuid.uuid4()) for _ in range(len(chunks))],
             documents=documents,
             metadatas=metadatas,
@@ -62,11 +68,12 @@ class MemoryClient:
     
 
     # Simple similarity search
-    def simple_search(self, queries: list[str], n_results=5):
+    def simple_search(self, queries: list[str], collection_name: str, n_results=5) -> list[dict]:
         """
         IN:
             queries: A list of string queries
             n_results: The number of chunks returned for each query
+            collection_name: The name of the collection to search in
 
         OUT:
             A list of lists.
@@ -82,7 +89,9 @@ class MemoryClient:
             prompt_name='query'
         )
 
-        results = self.chroma_collection.query(
+        # Get the collection
+        chroma_collection = self.chroma_client.get_or_create_collection(collection_name)
+        results = chroma_collection.query(
             query_embeddings=embeddings,
             n_results=n_results
         )

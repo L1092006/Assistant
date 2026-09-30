@@ -19,3 +19,4 @@ agent_logs.txt
 reasoning_log.txt
 .vscode/
 .env
+sql_database/assistant.db

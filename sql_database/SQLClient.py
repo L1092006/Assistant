@@ -71,7 +71,7 @@ class SQLiteClient(SQLClient):
         Save all the connection info to attributes. Init the db if needed. Save the agent id 
 
         Parameters:
-            file_path: The path to the db file. If file_path is None, read from .env
+            file_path: The path to the db file.
             agent_name: the name of the agent to get messages from and save messages to
             agent_type: the type of the agent. Needed when the agent doesn't exist in the db
             system_message: the system_message of the agent. Needed when the agent doesn't exist in the db
@@ -104,6 +104,8 @@ class SQLiteClient(SQLClient):
         if res is None:
             # If not enough agent info is provided, raise an error
             if not agent_type or not system_message:
+                cur.close()
+                con.close()
                 raise ValueError(f"The agent {agent_name} doesn't exist yet. Not enough info is provided to insert a new agent record")
             self.agent_id = self._create_agent(name=agent_name, type=agent_type, system_message=system_message)
         else: 
@@ -154,8 +156,8 @@ class SQLiteClient(SQLClient):
 
         # Get the messages
         # Get the datetime n seconds ago
-        start_time = (datetime.now() - timedelta(seconds=seconds)).isoformat()
-        query = "SELECT raw_string FROM messages WHERE agent_id = ? AND datetime >= ?"
+        start_time = (datetime.now(timezone.utc) - timedelta(seconds=seconds)).isoformat()
+        query = "SELECT raw_string FROM messages WHERE agent_id = ? AND datetime >= ? ORDER BY id"
         res = cur.execute(query, (self.agent_id, start_time))
         messages = [json.loads(m[0]) for m in res.fetchall()]
 
@@ -163,7 +165,7 @@ class SQLiteClient(SQLClient):
         con.close()
         return messages
 
-    def _create_agent(self, name: str = None, type: str = None, system_message: str = None) -> None:
+    def _create_agent(self, name: str = None, type: str = None, system_message: str = None) -> int:
         "Add a new agent to agents table, return the agent id"
         con = sqlite3.connect(self.file_path)
         cur = con.cursor()
