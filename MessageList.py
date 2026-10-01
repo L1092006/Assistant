@@ -233,7 +233,7 @@ class MessageList:
         return num_tokens, num_files, files, new_message_str 
 
 
-    async def add_messages(self, messages: list[dict]) -> None:
+    async def add_messages(self, messages: list[dict], save: bool = True) -> None:
         """
         Add the messages to the end of the list.
          
@@ -248,8 +248,9 @@ class MessageList:
         # Add the messages to the original messages list
         self.messages.extend(messages)
 
-        # Add the messages to the sql database
-        self.sql_client.save_messages(messages)
+        if save:
+            # Add the messages to the sql database
+            self.sql_client.save_messages(messages)
 
         # Whether we need to summarize or not
         need_summarize = False

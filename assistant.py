@@ -91,8 +91,8 @@ class Assistant:
             personas = json.load(f)
         persona_name = personas['chosen_persona']
         persona = personas[persona_name]
-        self.context = Context(input_sources=input_sources, output_sources=output_sources, agent_name=persona_name, agent_type=agent_type)
-                
+        self.context = Context(input_sources=input_sources, output_sources=output_sources, agent_name=persona_name, agent_type=agent_type, summarization_model=model)
+        
 
         # Init model objects and agents
         provider_client = AsyncOpenAI(base_url=url,api_key=api_key)
@@ -185,6 +185,8 @@ class Assistant:
         """
         Start a loop to continuosly invoke the agent. Only stop when self.on set to False by other routines
         """
+        # Complete the init
+        await self.context.async_init()
 
         # FIXME: change 
         # Init mcp
@@ -192,7 +194,7 @@ class Assistant:
             self.agent.mcp_servers = manager.active_servers
             self.on = True
             while self.on:
-                context = self.context.fetch_context()
+                context = await self.context.fetch_context()
                 self.log(context, file_path="agent_logs.txt")
                 try:
                     result = Runner.run_streamed(self.agent, context, max_turns=1)
@@ -214,7 +216,7 @@ class Assistant:
                     print(str(result.to_input_list()))
 
                     # Send only the newly produced messages to context, ignore the context user message
-                    self.context.send_messages(result.to_input_list()[1:])
+                    await self.context.send_messages(result.to_input_list()[1:])
 
                 except Exception as e:
                     print(f'Error: {e}')

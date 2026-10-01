@@ -20,3 +20,4 @@ reasoning_log.txt
 .vscode/
 .env
 sql_database/assistant.db
+memory/
